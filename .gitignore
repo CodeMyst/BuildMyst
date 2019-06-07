@@ -1,0 +1,16 @@
+.dub
+docs.json
+__dummy.html
+docs/
+/buildmyst
+buildmyst.so
+buildmyst.dylib
+buildmyst.dll
+buildmyst.a
+buildmyst.lib
+buildmyst-test-*
+*.exe
+*.o
+*.obj
+*.lst
+build/

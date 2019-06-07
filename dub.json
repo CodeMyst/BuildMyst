@@ -1,0 +1,10 @@
+{
+	"authors": [
+		"CodeMyst"
+	],
+	"copyright": "Copyright © 2019, CodeMyst",
+	"description": "A very simple and customizable build system",
+	"license": "MPL-2.0",
+	"name": "buildmyst",
+	"targetPath": "build"
+}
