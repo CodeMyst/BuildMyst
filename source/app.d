@@ -17,6 +17,8 @@ private string [] configurations;
 private string [] customScripts;
 private Action [] actions;
 private BuildAction [] buildActions;
+private BuildAction beforeBuild;
+private BuildAction afterBuild;
 
 private string configuration;
 
@@ -85,6 +87,18 @@ int main (string [] args)
                 buildActions ~= getBuildAction (actions, buildName, value);
             }
         }
+        else if (key.as!string == "before_build")
+        {
+            beforeBuild = getBuildEvent (actions, key.as!string, value);
+        }
+        else if (key.as!string == "after_build")
+        {
+            afterBuild = getBuildEvent (actions, key.as!string, value);
+        }
+        else
+        {
+            throwWarning ("Unknown key: " ~ key.as!string ~ ". Ignoring.");
+        }
     }
 
     if (configuration == "")
@@ -92,9 +106,38 @@ int main (string [] args)
         configuration = configurations [0];
     }
 
-    BuildAction buildAction = buildActions.find!(a => a.configuration == configuration) [0];
-    executeBuildAction (buildAction);
+    bool ok = true;
 
+    if (beforeBuild !is null)
+    {
+        if (executeBuildAction (beforeBuild) == false)
+        {
+            cwriteln ("Build failed".color (fg.red).style (mode.bold));
+            return 1;
+        }
+
+        cwriteln ();
+    }
+
+    BuildAction buildAction = buildActions.find!(a => a.configuration == configuration) [0];
+    if (executeBuildAction (buildAction) == false)
+    {
+        cwriteln ("Build failed".color (fg.red).style (mode.bold));
+        return 1;
+    }
+
+    if (afterBuild !is null)
+    {
+        cwriteln ();
+        if (executeBuildAction (afterBuild) == false)
+        {
+            cwriteln ("Build failed".color (fg.red).style (mode.bold));
+            return 1;
+        }
+    }
+
+    cwriteln ();
+    cwriteln ("Build passed".color (fg.green).style (mode.bold));
     return 0;
 }
 
@@ -119,7 +162,6 @@ private Action [] getActions (Node actionsNode)
             {
                 string customScript = command [2..$].split (" ") [0];
                 string [] parameters = command [3 + customScript.length..$-1].split (" ");
-                writeln (parameters);
                 if (customScripts.canFind (customScript) == false)
                 {
                     throwError (cast (string) ("Custom script: " ~ customScript ~ " doesn't exist. Either remove the action from the config or create the script in: " ~ chainPath (projectDir, buildMystDirName, "scripts", customScript).array ~ ".d."));
@@ -173,11 +215,18 @@ private string [] getCustomScripts ()
 
 private BuildAction getBuildAction (Action [] actions, string name, Node buildActionsNode)
 {
-    BuildAction buildAction = new BuildAction ();
-    buildAction.name = name;
+    BuildAction buildAction = getBuildEvent (actions, name, buildActionsNode);
     buildAction.configuration = name [6..$];
 
-    foreach (Node action; buildActionsNode)
+    return buildAction;
+}
+
+private BuildAction getBuildEvent (Action [] actions, string name, Node buildEventNode)
+{
+    BuildAction buildAction = new BuildAction ();
+    buildAction.name = name;
+
+    foreach (Node action; buildEventNode)
     {
         string actionName = action.as!string [2..$-1];
         buildAction.actions ~= actions.find!(e => e.name == actionName) [0];
@@ -186,10 +235,10 @@ private BuildAction getBuildAction (Action [] actions, string name, Node buildAc
     return buildAction;
 }
 
-private void executeBuildAction (BuildAction buildAction)
+private bool executeBuildAction (BuildAction buildAction)
 {
     cwrite ("Running build: ");
-    cwrite (buildAction.name.color (fg.cyan).style (mode.bold));
+    cwrite (buildAction.name.color (fg.light_magenta).style (mode.bold));
     cwriteln ();
     cwriteln ();
 
@@ -201,25 +250,22 @@ private void executeBuildAction (BuildAction buildAction)
         foreach (string command; action.commands)
         {
             auto process = executeShell (command, null, Config.none, size_t.max, projectDir);
-            if (process.status == 0)
-            {
-                cwrite ("\t✓".color (fg.green).style (mode.bold));
-                cwriteln ();
-            }
-            else
+            if (process.status != 0)
             {
                 cwrite ("\t✗".color (fg.red).style (mode.bold));
                 cwriteln ();
                 cwriteln ();
                 cwriteln (("Command: " ~ command ~ " exited with code: " ~ process.status.to!string).color (fg.red));
                 cwriteln (process.output);
-                cwriteln ("Build failed".color (fg.red).style (mode.bold));
-                return;
+                return false;
             }
         }
+
+        cwrite ("\t✓".color (fg.green).style (mode.bold));
+        cwriteln ();
     }
 
-    cwriteln ("\nBuild succeeded".color (fg.green).style (mode.bold));
+    return true;
 }
 
 private void throwError (string msg)

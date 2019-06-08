@@ -6,14 +6,21 @@ actions:
         - sass source/style.scss dist/style.css
     build_pug_minified:
         - pug source/index.pug -o dist
+        - pug source/index.pug -o dist
     build_scss_minified:
         - sass source/style.scss dist/style.css -s compressed --no-source-map
     file_renamer:
         - ${files/renamer dist/}
+    clean_dist:
+        - ${files/rmdir dist/}
+        - ${files/mkdir dist/}
 
 configurations:
     - debug
     - release
+
+before_build:
+    - ${clean_dist}
 
 build_debug:
     - ${build_pug}
