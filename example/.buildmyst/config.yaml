@@ -1,0 +1,23 @@
+---
+actions:
+    build_pug:
+        - pug source/index.pug -o dist -P
+    build_scss:
+        - sass source/style.scss dist/style.css
+    build_pug_minified:
+        - pug source/index.pug -o dist
+    build_scss_minified:
+        - sass source/style.scss dist/style.css -s compressed --no-source-map
+
+configurations:
+    - debug
+    - release
+
+build_debug:
+    - ${build_pug}
+    - ${build_scss}
+
+build_release:
+    - ${build_pug_minified}
+    - ${build_scss_minified}
+...

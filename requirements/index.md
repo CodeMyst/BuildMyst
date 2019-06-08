@@ -12,8 +12,6 @@ If the amount of built in options isn't enough you can make your own actions usi
 
 All the configuration will be done in a single YAML file and in additional D scripts.
 
-## Implementation
-
 ## Example
 
 This is a small example that demonstrates how it works. Here we have 2 directories: view and style. In view there are a number of PUG files which need to be compiled to HTML and in the style folder are SCSS files which need to be compiled into CSS. In the watch mode it should watch for view and style directories separately.
