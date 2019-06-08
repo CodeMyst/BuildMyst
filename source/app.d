@@ -246,13 +246,13 @@ private bool executeBuildAction (BuildAction buildAction)
 
     foreach (Action action; buildAction.actions)
     {
-        cwrite (("\t" ~ action.name).color (fg.cyan).style (mode.bold));
+        cwritef ("%-50s", ("\t" ~ action.name).color (fg.cyan).style (mode.bold));
         foreach (string command; action.commands)
         {
             auto process = executeShell (command, null, Config.none, size_t.max, projectDir);
             if (process.status != 0)
             {
-                cwrite ("\t✗".color (fg.red).style (mode.bold));
+                cwrite ("✗".color (fg.red).style (mode.bold));
                 cwriteln ();
                 cwriteln ();
                 cwriteln (("Command: " ~ command ~ " exited with code: " ~ process.status.to!string).color (fg.red));
@@ -261,7 +261,8 @@ private bool executeBuildAction (BuildAction buildAction)
             }
         }
 
-        cwrite ("\t✓".color (fg.green).style (mode.bold));
+        // cwritef ("%-20s", "");
+        cwrite ("✓".color (fg.green).style (mode.bold));
         cwriteln ();
     }
 
