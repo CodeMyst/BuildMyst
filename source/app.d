@@ -2,7 +2,7 @@ import std.file;
 import std.path;
 import std.array;
 import std.stdio;
-import std.algorithm.searching;
+import std.algorithm;
 import std.process;
 import std.conv;
 import std.getopt;
@@ -14,6 +14,7 @@ private const string buildMystDirName = ".buildmyst";
 private const string configName = "config.yaml";
 
 private string [] configurations;
+private string [] customScripts;
 private Action [] actions;
 private BuildAction [] buildActions;
 
@@ -21,7 +22,7 @@ private string configuration;
 
 int main (string [] args)
 {
-    auto options = getopt
+    const auto options = getopt
     (
         args,
         "targetDirectory|t", &projectDir,
@@ -51,6 +52,8 @@ int main (string [] args)
         return 1;
     }
 
+    customScripts = getCustomScripts ();
+
     Node config = getConfig ();
 
     foreach (Node key, Node value; config)
@@ -58,6 +61,10 @@ int main (string [] args)
         if (key.as!string == "actions")
         {
             actions = getActions (value);
+            if (actions == null)
+            {
+                return 1;
+            }
         }
         else if (key.as!string == "configurations")
         {
@@ -107,7 +114,21 @@ private Action [] getActions (Node actionsNode)
 
         foreach (Node actionCommand; actionValue)
         {
-            commands ~= actionCommand.as!string;
+            string command = actionCommand.as!string;
+            if (command.startsWith ("${") && command.endsWith ("}"))
+            {
+                string customScript = command [2..$].split (" ") [0];
+                string [] parameters = command [3 + customScript.length..$-1].split (" ");
+                writeln (parameters);
+                if (customScripts.canFind (customScript) == false)
+                {
+                    throwError (cast (string) ("Custom script: " ~ customScript ~ " doesn't exist. Either remove the action from the config or create the script in: " ~ chainPath (projectDir, buildMystDirName, "scripts", customScript).array ~ ".d."));
+                    return null;
+                }
+                command = customScriptToCommand (customScript, parameters);
+            }
+         
+            commands ~= command;
         }
 
         actions ~= new Action (name, commands);
@@ -118,14 +139,36 @@ private Action [] getActions (Node actionsNode)
 
 private string [] getConfigurations (Node configurationsNode)
 {
-    string [] configurations;
+    string [] res;
 
     foreach (string configuration; configurationsNode)
     {
-        configurations ~= configuration;
+        res ~= configuration;
     }
 
-    return configurations;
+    return res;
+}
+
+private string customScriptToCommand (string script, string [] parameters)
+{
+    string scriptPath = cast (string) (chainPath (buildMystDirName, "scripts", script).array ~ ".d" ~ " " ~ parameters.join (" "));
+
+    return "rdmd " ~ scriptPath;
+}
+
+private string [] getCustomScripts ()
+{
+    auto scripts = dirEntries (chainPath (projectDir, buildMystDirName, "scripts").array, SpanMode.depth).filter! (f => f.isFile ());
+    string base = absolutePath (chainPath (projectDir, buildMystDirName, "scripts").array);
+
+    string [] res;
+
+    foreach (script; scripts)
+    {
+        res ~= relativePath (script.name.absolutePath (), base).stripExtension ();
+    }
+
+    return res;
 }
 
 private BuildAction getBuildAction (Action [] actions, string name, Node buildActionsNode)

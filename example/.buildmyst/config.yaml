@@ -8,6 +8,8 @@ actions:
         - pug source/index.pug -o dist
     build_scss_minified:
         - sass source/style.scss dist/style.css -s compressed --no-source-map
+    file_renamer:
+        - ${files/renamer dist/}
 
 configurations:
     - debug
@@ -20,4 +22,5 @@ build_debug:
 build_release:
     - ${build_pug_minified}
     - ${build_scss_minified}
+    - ${file_renamer}
 ...
