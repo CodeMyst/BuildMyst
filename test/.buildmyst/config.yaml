@@ -1,0 +1,17 @@
+---
+actions:
+    build_test:
+        - cp source/test.txt dist/test.txt
+    clean_dist:
+        - ${files/rmdir dist/}
+        - ${files/mkdir dist/}
+
+configurations:
+    - test
+
+before_build:
+    - ${clean_dist}
+
+build_test:
+    - ${build_test}
+...

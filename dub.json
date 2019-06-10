@@ -13,5 +13,6 @@
 		"colorize": "~>1.0.5",
 		"dyaml": "~>0.8.0",
 		"fswatch": "~>0.4.0"
-	}
+	},
+	"targetType": "executable"
 }
