@@ -1,3 +1,46 @@
-# BuildMyst
+# BuildMyst [![Build Status](https://travis-ci.org/CodeMyst/BuildMyst.svg?branch=master)](https://travis-ci.org/CodeMyst/BuildMyst)
 
-A very simple and customizable build system
+A very simple and customizable build system. You can find an example in the `example` folder.
+
+Here's a sample config file:
+
+```yaml
+---
+actions:
+    build_pug:
+        - pug source/views/index.pug -o dist -P
+    build_scss:
+        - sass source/styles/style.scss dist/style.css
+    build_pug_minified:
+        - pug source/views/index.pug -o dist
+    build_scss_minified:
+        - sass source/styles/style.scss dist/style.css -s compressed --no-source-map
+    file_renamer:
+        - ${files/renamer dist/}
+    clean_dist:
+        - ${files/rmdir dist/}
+        - ${files/mkdir dist/}
+
+configurations:
+    - debug
+    - release
+
+before_build:
+    - ${clean_dist}
+
+build_debug:
+    - ${build_pug}
+    - ${build_scss}
+
+build_release:
+    - ${build_pug_minified}
+    - ${build_scss_minified}
+    - ${file_renamer}
+
+watch:
+    source/views/:
+        - ${build_pug}
+    source/styles/:
+        - ${build_scss}
+...
+```
