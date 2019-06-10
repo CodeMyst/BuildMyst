@@ -1,14 +1,13 @@
 ---
 actions:
     build_pug:
-        - pug source/index.pug -o dist -P
+        - pug source/views/index.pug -o dist -P
     build_scss:
-        - sass source/style.scss dist/style.css
+        - sass source/styles/style.scss dist/style.css
     build_pug_minified:
-        - pug source/index.pug -o dist
-        - pug source/index.pug -o dist
+        - pug source/views/index.pug -o dist
     build_scss_minified:
-        - sass source/style.scss dist/style.css -s compressed --no-source-map
+        - sass source/styles/style.scss dist/style.css -s compressed --no-source-map
     file_renamer:
         - ${files/renamer dist/}
     clean_dist:
@@ -32,6 +31,8 @@ build_release:
     - ${file_renamer}
 
 watch:
-    source/:
+    source/views/:
         - ${build_pug}
+    source/styles/:
+        - ${build_scss}
 ...

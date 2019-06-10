@@ -17,6 +17,7 @@ private Action [] actions;
 private BuildAction [] buildActions;
 private BuildAction beforeBuild;
 private BuildAction afterBuild;
+private WatchAction [] watchActions;
 
 private class Action
 {
@@ -30,6 +31,12 @@ private class BuildAction
     public string configuration;
     public Action [] actions;
     public bool isEvent;
+}
+
+private class WatchAction
+{
+    public string path;
+    public Action [] actions;
 }
 
 public int main (string [] args)
@@ -107,39 +114,105 @@ public int main (string [] args)
         cwriteln ();
         cwriteln ("Build passed".color (fg.green).style (mode.bold));
     }
+    else
+    {
+        watch ();
+    }
 
     return 0;
 }
 
+private void watch ()
+{
+    import fswatch : FileWatch, FileChangeEvent, FileChangeEventType;
+    import std.path : dirName;
+
+    clearScreen ();
+
+    cwriteln ("Watching...".color (fg.light_magenta).style (mode.bold));
+
+    FileWatch watcher = FileWatch (targetDirectory == "" ? "." : targetDirectory, true);
+    while (true)
+    {
+        FileChangeEvent [] events = watcher.getEvents ();
+        foreach (FileChangeEvent event; events)
+        {
+            foreach (WatchAction watchAction; watchActions)
+            {
+                if (dirName (event.path) == watchAction.path && event.type == FileChangeEventType.modify)
+                {
+                    clearScreen ();
+                    cwriteln ("Watching...".color (fg.light_magenta).style (mode.bold));
+                    cwriteln ();
+                    cwrite (watchAction.path.color (fg.light_magenta));
+                    cwriteln (" changed");
+                    cwriteln ();
+
+                    bool buildPassed = true;
+
+                    foreach (Action action; watchAction.actions)
+                    {
+                        if (!executeAction (action))
+                        {
+                            buildPassed = false;
+                        }
+                    }
+
+                    cwriteln ();
+
+                    if (buildPassed)
+                    {
+                        cwriteln ("Build passed".color (fg.green).style (mode.bold));
+                    }
+                    else
+                    {
+                        cwriteln ("Build failed".color (fg.red).style (mode.bold));
+                    }
+                }
+            }
+        }
+    }
+}
+
 private bool executeBuildAction (BuildAction buildAction)
 {
-    import std.process : executeShell, Config;
-    import std.conv : to;
-
     cwrite (buildAction.name.color (fg.light_magenta).style (mode.bold));
     cwriteln ();
     cwriteln ();
 
     foreach (Action action; buildAction.actions)
     {
-        cwritef ("\t%-50s", (action.name).color (fg.cyan).style (mode.bold));
-        foreach (string command; action.commands)
+        if (!executeAction (action))
         {
-            auto process = executeShell (command, null, Config.none, size_t.max, targetDirectory);
-            if (process.status != 0)
-            {
-                cwrite ("✗".color (fg.red).style (mode.bold));
-                cwriteln ();
-                cwriteln ();
-                cwriteln (("Command: " ~ command ~ " exited with code: " ~ process.status.to!string).color (fg.red));
-                cwriteln (process.output);
-                return false;
-            }
+            return false;
         }
-
-        cwrite ("✓".color (fg.green).style (mode.bold));
-        cwriteln ();
     }
+
+    return true;
+}
+
+private bool executeAction (Action action)
+{
+    import std.process : executeShell, Config;
+    import std.conv : to;
+
+    cwritef ("\t%-50s", (action.name).color (fg.cyan).style (mode.bold));
+    foreach (string command; action.commands)
+    {
+        auto process = executeShell (command, null, Config.none, size_t.max, targetDirectory);
+        if (process.status != 0)
+        {
+            cwrite ("✗".color (fg.red).style (mode.bold));
+            cwriteln ();
+            cwriteln ();
+            cwriteln (("Command: " ~ command ~ " exited with code: " ~ process.status.to!string).color (fg.red));
+            cwriteln (process.output);
+            return false;
+        }
+    }
+
+    cwrite ("✓".color (fg.green).style (mode.bold));
+    cwriteln ();
 
     return true;
 }
@@ -199,7 +272,7 @@ private void parseConfig ()
         {
             if (shouldWatch)
             {
-
+                watchActions = parseWatchActions (value);
             }
         }
         else
@@ -219,6 +292,35 @@ private Action [] parseActions (Node value)
         a.name = actionKey.as!string;
         a.commands = parseCommands (actionValue);
         res ~= a;
+    }
+
+    return res;
+}
+
+private WatchAction [] parseWatchActions (Node value)
+{
+    import std.algorithm : find;
+    import std.string : chomp;
+    import std.path : dirSeparator;
+
+    WatchAction [] res;
+
+    foreach (Node watchKey, Node watchActions; value)
+    {
+        string path = watchKey.as!string;
+        path = path.chomp (dirSeparator);
+        Action [] a;
+
+        foreach (Node action; watchActions)
+        {
+            string actionName = action.as!string [2..$-1];
+            a ~= actions.find! (e => e.name == actionName) [0];
+        }
+
+        WatchAction wa = new WatchAction ();
+        wa.path = path;
+        wa.actions = a;
+        res ~= wa;
     }
 
     return res;
@@ -250,7 +352,8 @@ private BuildAction parseBuildAction (string name, Node value, bool isEvent = fa
 
         if (configurations.canFind (configurationName) == false)
         {
-            throwWarning ("Configuration: " ~ configurationName ~ " doesn't exist. Ignoring " ~ name ~ " build action.");
+            throwWarning ("Configuration: " ~ configurationName ~
+                          " doesn't exist. Ignoring " ~ name ~ " build action.");
             return null;
         }
 
@@ -367,4 +470,9 @@ private void throwWarning (string msg)
     cwrite (" WARNING ".color (fg.black, bg.light_yellow));
     cwrite ((" " ~ msg).color (fg.light_yellow).style (mode.bold));
     cwriteln ();
+}
+
+private void clearScreen ()
+{
+    cwritef ("\033[1;1H\033[2J");
 }
