@@ -2,7 +2,9 @@
 	"fileVersion": 1,
 	"versions": {
 		"colorize": "1.0.5",
+		"consoled": "1.0.4",
 		"dyaml": "0.8.0",
+		"fswatch": "0.4.0",
 		"tinyendian": "0.2.0"
 	}
 }

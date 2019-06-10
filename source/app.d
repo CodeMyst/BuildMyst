@@ -1,255 +1,131 @@
-import std.file;
-import std.path;
-import std.array;
-import std.stdio;
-import std.algorithm;
-import std.process;
-import std.conv;
-import std.getopt;
 import colorize;
 import dyaml;
 
-private string projectDir = "";
+private string targetDirectory = "";
+
 private const string buildMystDirName = ".buildmyst";
-private const string configName = "config.yaml";
+private const string buildMystConfigName = "config.yaml";
+private const string customScriptsDirName = "scripts";
 
 private string [] configurations;
+private string configuration;
+
+private bool shouldWatch;
+
 private string [] customScripts;
 private Action [] actions;
 private BuildAction [] buildActions;
 private BuildAction beforeBuild;
 private BuildAction afterBuild;
 
-private string configuration;
-
-int main (string [] args)
+private class Action
 {
-    const auto options = getopt
+    public string name;
+    public string [] commands;
+}
+
+private class BuildAction
+{
+    public string name;
+    public string configuration;
+    public Action [] actions;
+    public bool isEvent;
+}
+
+public int main (string [] args)
+{
+    import std.getopt : getopt, GetoptResult;
+    import std.file : exists;
+    import std.algorithm : find;
+
+    const GetoptResult options = getopt
     (
         args,
-        "targetDirectory|t", &projectDir,
-        "configuration|c", &configuration
+        "targetDirectory|t", &targetDirectory,
+        "configuration|c", &configuration,
+        "watch|w", &shouldWatch
     );
 
     if (options.helpWanted)
     {
-        cwriteln ("usage: buildmyst [options]");
-        cwriteln ();
-        cwriteln ("options:");
-        cwriteln ("\t--targetDirectory\t[-t]\t[Optional] Runs BuildMyst in the target directory. If not specified runs in the current directory.");
-        cwriteln ("\t--configuration\t\t[-c]\t[Optional] Runs the build with the specified configuration. If not specified it uses the first configuration in the config file.");
-
+        printHelp ();
         return 0;
     }
 
-    if (!exists (chainPath (projectDir, buildMystDirName)))
+    if (!exists (getBuildMystDir ()))
     {
-        throwError ("Missing " ~ buildMystDirName ~ " directory. You can specify one with the -t option. Run buildmyst -h for more information.");
+        throwError ("Missing " ~ buildMystDirName ~ " directory." ~
+                    " You can specify one with the -t option. Run buildmyst -h for more information.");
         return 1;
     }
 
-    if (!exists (chainPath (projectDir, buildMystDirName, configName)))
+    if (!exists (getBuildMystConfigFile ()))
     {
-        throwError ("Missing " ~ configName ~ " file.");
+        throwError ("Missing " ~ getBuildMystConfigFile ()  ~ " config file.");
         return 1;
     }
 
-    customScripts = getCustomScripts ();
+    getCustomScripts ();
 
-    Node config = getConfig ();
+    parseConfig ();
 
-    foreach (Node key, Node value; config)
+    if (!shouldWatch)
     {
-        if (key.as!string == "actions")
+        if (configuration == "")
         {
-            actions = getActions (value);
-            if (actions == null)
+            configuration = configurations [0];
+        }
+
+        if (beforeBuild !is null)
+        {
+            if (!executeBuildAction (beforeBuild))
             {
+                cwriteln ("Build failed".color (fg.red).style (mode.bold));
+                return 1;
+            }
+
+            cwriteln ();
+        }
+
+        BuildAction buildAction = buildActions.find! (e => e.configuration == configuration) [0];
+        if (!executeBuildAction (buildAction))
+        {
+            cwriteln ("Build failed".color (fg.red).style (mode.bold));
+            return 1;
+        }
+
+        if (afterBuild !is null)
+        {
+            cwriteln ();
+            if (!executeBuildAction (afterBuild))
+            {
+                cwriteln ("Build failed".color (fg.red).style (mode.bold));
                 return 1;
             }
         }
-        else if (key.as!string == "configurations")
-        {
-            configurations = getConfigurations (value);
-        }
-        else if (key.as!string.startsWith ("build"))
-        {
-            string buildName = key.as!string;
-
-            string buildConfiguration = buildName [6..$];
-
-            if (configurations.canFind (buildConfiguration) == false)
-            {
-                throwWarning ("Configuration: " ~ buildConfiguration ~ " doesn't exist. Ignoring " ~ buildName ~ " build action.");
-            }
-            else
-            {
-                buildActions ~= getBuildAction (actions, buildName, value);
-            }
-        }
-        else if (key.as!string == "before_build")
-        {
-            beforeBuild = getBuildEvent (actions, key.as!string, value);
-        }
-        else if (key.as!string == "after_build")
-        {
-            afterBuild = getBuildEvent (actions, key.as!string, value);
-        }
-        else
-        {
-            throwWarning ("Unknown key: " ~ key.as!string ~ ". Ignoring.");
-        }
-    }
-
-    if (configuration == "")
-    {
-        configuration = configurations [0];
-    }
-
-    bool ok = true;
-
-    if (beforeBuild !is null)
-    {
-        if (executeBuildAction (beforeBuild) == false)
-        {
-            cwriteln ("Build failed".color (fg.red).style (mode.bold));
-            return 1;
-        }
 
         cwriteln ();
+        cwriteln ("Build passed".color (fg.green).style (mode.bold));
     }
 
-    BuildAction buildAction = buildActions.find!(a => a.configuration == configuration) [0];
-    if (executeBuildAction (buildAction) == false)
-    {
-        cwriteln ("Build failed".color (fg.red).style (mode.bold));
-        return 1;
-    }
-
-    if (afterBuild !is null)
-    {
-        cwriteln ();
-        if (executeBuildAction (afterBuild) == false)
-        {
-            cwriteln ("Build failed".color (fg.red).style (mode.bold));
-            return 1;
-        }
-    }
-
-    cwriteln ();
-    cwriteln ("Build passed".color (fg.green).style (mode.bold));
     return 0;
-}
-
-private Node getConfig ()
-{
-    return Loader.fromFile (cast (string) (chainPath (projectDir, buildMystDirName, configName).array)).load ();
-}
-
-private Action [] getActions (Node actionsNode)
-{
-    Action [] actions;
-
-    foreach (Node actionKey, Node actionValue; actionsNode)
-    {
-        string name = actionKey.as!string;
-        string [] commands;
-
-        foreach (Node actionCommand; actionValue)
-        {
-            string command = actionCommand.as!string;
-            if (command.startsWith ("${") && command.endsWith ("}"))
-            {
-                string customScript = command [2..$].split (" ") [0];
-                string [] parameters = command [3 + customScript.length..$-1].split (" ");
-                if (customScripts.canFind (customScript) == false)
-                {
-                    throwError (cast (string) ("Custom script: " ~ customScript ~ " doesn't exist. Either remove the action from the config or create the script in: " ~ chainPath (projectDir, buildMystDirName, "scripts", customScript).array ~ ".d."));
-                    return null;
-                }
-                command = customScriptToCommand (customScript, parameters);
-            }
-         
-            commands ~= command;
-        }
-
-        actions ~= new Action (name, commands);
-    }
-
-    return actions;
-}
-
-private string [] getConfigurations (Node configurationsNode)
-{
-    string [] res;
-
-    foreach (string configuration; configurationsNode)
-    {
-        res ~= configuration;
-    }
-
-    return res;
-}
-
-private string customScriptToCommand (string script, string [] parameters)
-{
-    string scriptPath = cast (string) (chainPath (buildMystDirName, "scripts", script).array ~ ".d" ~ " " ~ parameters.join (" "));
-
-    return "rdmd " ~ scriptPath;
-}
-
-private string [] getCustomScripts ()
-{
-    auto scripts = dirEntries (chainPath (projectDir, buildMystDirName, "scripts").array, SpanMode.depth).filter! (f => f.isFile ());
-    string base = absolutePath (chainPath (projectDir, buildMystDirName, "scripts").array);
-
-    string [] res;
-
-    foreach (script; scripts)
-    {
-        res ~= relativePath (script.name.absolutePath (), base).stripExtension ();
-    }
-
-    return res;
-}
-
-private BuildAction getBuildAction (Action [] actions, string name, Node buildActionsNode)
-{
-    BuildAction buildAction = getBuildEvent (actions, name, buildActionsNode);
-    buildAction.configuration = name [6..$];
-
-    return buildAction;
-}
-
-private BuildAction getBuildEvent (Action [] actions, string name, Node buildEventNode)
-{
-    BuildAction buildAction = new BuildAction ();
-    buildAction.name = name;
-
-    foreach (Node action; buildEventNode)
-    {
-        string actionName = action.as!string [2..$-1];
-        buildAction.actions ~= actions.find!(e => e.name == actionName) [0];
-    }
-
-    return buildAction;
 }
 
 private bool executeBuildAction (BuildAction buildAction)
 {
-    cwrite ("Running build: ");
+    import std.process : executeShell, Config;
+    import std.conv : to;
+
     cwrite (buildAction.name.color (fg.light_magenta).style (mode.bold));
     cwriteln ();
     cwriteln ();
 
-    cwriteln ("Running actions: ");
-
     foreach (Action action; buildAction.actions)
     {
-        cwritef ("%-50s", ("\t" ~ action.name).color (fg.cyan).style (mode.bold));
+        cwritef ("\t%-50s", (action.name).color (fg.cyan).style (mode.bold));
         foreach (string command; action.commands)
         {
-            auto process = executeShell (command, null, Config.none, size_t.max, projectDir);
+            auto process = executeShell (command, null, Config.none, size_t.max, targetDirectory);
             if (process.status != 0)
             {
                 cwrite ("✗".color (fg.red).style (mode.bold));
@@ -261,12 +137,222 @@ private bool executeBuildAction (BuildAction buildAction)
             }
         }
 
-        // cwritef ("%-20s", "");
         cwrite ("✓".color (fg.green).style (mode.bold));
         cwriteln ();
     }
 
     return true;
+}
+
+private void getCustomScripts ()
+{
+    import std.file : dirEntries, SpanMode, isFile;
+    import std.algorithm : filter;
+    import std.path : absolutePath, relativePath, stripExtension;
+
+    string customScriptsDir = getCustomScriptsDir ();
+
+    auto scripts = dirEntries (customScriptsDir, SpanMode.depth).filter!(f => f.isFile ());
+    string base = absolutePath (customScriptsDir);
+
+    string [] res;
+
+    foreach (script; scripts)
+    {
+        res ~= relativePath (script.name.absolutePath (), base).stripExtension ();
+    }
+
+    customScripts = res;
+}
+
+private void parseConfig ()
+{
+    import std.algorithm : startsWith;
+
+    Node config = Loader.fromFile (cast (string) getBuildMystConfigFile ()).load ();
+
+    foreach (Node key, Node value; config)
+    {
+        string keyName = key.as!string;
+
+        if (keyName == "actions")
+        {
+            actions = parseActions (value);
+        }
+        else if (keyName == "configurations")
+        {
+            configurations = parseConfigurations (value);
+        }
+        else if (keyName.startsWith ("build"))
+        {
+            buildActions ~= parseBuildAction (keyName, value);
+        }
+        else if (keyName == "before_build")
+        {
+            beforeBuild = parseBuildAction (keyName, value, true);
+        }
+        else if (keyName == "after_build")
+        {
+            afterBuild = parseBuildAction (keyName, value, true);
+        }
+        else if (keyName == "watch")
+        {
+            if (shouldWatch)
+            {
+
+            }
+        }
+        else
+        {
+            throwWarning ("Unknown key: " ~ keyName ~ ". Ignoring.");
+        }
+    }
+}
+
+private Action [] parseActions (Node value)
+{
+    Action [] res;
+
+    foreach (Node actionKey, Node actionValue; value)
+    {
+        Action a = new Action ();
+        a.name = actionKey.as!string;
+        a.commands = parseCommands (actionValue);
+        res ~= a;
+    }
+
+    return res;
+}
+
+private string [] parseConfigurations (Node value)
+{
+    string [] res;
+
+    foreach (string conf; value)
+    {
+        res ~= conf;
+    }
+
+    return res;
+}
+
+private BuildAction parseBuildAction (string name, Node value, bool isEvent = false)
+{
+    import std.algorithm : canFind, find;
+
+    BuildAction res = new BuildAction ();
+    res.isEvent = isEvent;
+    res.name = name;
+
+    if (!isEvent)
+    {
+        string configurationName = name [6..$];
+
+        if (configurations.canFind (configurationName) == false)
+        {
+            throwWarning ("Configuration: " ~ configurationName ~ " doesn't exist. Ignoring " ~ name ~ " build action.");
+            return null;
+        }
+
+        res.configuration = configurationName;
+    }
+
+    foreach (Node action; value)
+    {
+        string actionName = action.as!string [2..$-1];
+        res.actions ~= actions.find! (e => e.name == actionName) [0];
+    }
+
+    return res;
+}
+
+private string [] parseCommands (Node value)
+{
+    import std.algorithm : startsWith, endsWith, canFind;
+    import std.array : split, array;
+    import std.path : chainPath;
+
+    string [] res;
+
+    foreach (Node commandNode; value)
+    {
+        string command = commandNode.as!string;
+
+        if (command.startsWith ("${") && command.endsWith ("}"))
+        {
+            string [] customScriptArgs = command [2..$-1].split (" ");
+            string customScriptName = customScriptArgs [0];
+            string [] customScriptParameters = customScriptArgs [1..$];
+
+            if (!customScripts.canFind (customScriptName))
+            {
+                throwError (cast (string) ("Custom script: " ~ customScriptName ~ " doesn't exist." ~
+                            "Either remove the action from the config or create the script in: " ~
+                            chainPath (getCustomScriptsDir (), customScriptName).array ~ ".d."));
+                return null;
+            }
+
+            command = parseCustomScript (customScriptName, customScriptParameters);
+        }
+
+        res ~= command;
+    }
+
+    return res;
+}
+
+private string parseCustomScript (string customScriptName, string [] parameters)
+{
+    import std.path : chainPath;
+    import std.array : array, join;
+
+    string scriptPath = cast (string) chainPath (buildMystDirName, customScriptsDirName, customScriptName).array ~
+                        ".d" ~
+                        " " ~
+                        parameters.join (" ");
+
+    return "rdmd " ~ scriptPath;
+}
+
+private void printHelp ()
+{
+    cwriteln ("Usage: buildmyst [options]");
+    cwriteln ();
+    cwriteln ("Options:");
+    cwriteln ("        --targetDirectory    [-t]" ~
+              "        [Optional]" ~
+              " Runs BuildMyst in the target directory. If not specified runs in the current directory.");
+    cwriteln ("        --configuration      [-c]" ~
+              "        [Optional]" ~
+              " Runs the build with the specified configuration." ~
+              " If not specified it uses the first configuration in the config file.");
+    cwriteln ("        --watch              [-w]" ~
+              "        [Optional]" ~
+              " Runs BuildMyst in the watch mode.");
+}
+
+private string getBuildMystDir ()
+{
+    import std.path : chainPath;
+    import std.array : array;
+
+    return chainPath (targetDirectory, buildMystDirName).array;
+}
+
+private string getBuildMystConfigFile ()
+{
+    import std.path : chainPath;
+    import std.array : array;
+
+    return chainPath (targetDirectory, buildMystDirName, buildMystConfigName).array;
+}
+
+private string getCustomScriptsDir ()
+{
+    import std.path : chainPath;
+    import std.array : array;
+
+    return chainPath (targetDirectory, buildMystDirName, customScriptsDirName).array;
 }
 
 private void throwError (string msg)
@@ -282,33 +368,3 @@ private void throwWarning (string msg)
     cwrite ((" " ~ msg).color (fg.light_yellow).style (mode.bold));
     cwriteln ();
 }
-
-private class Action
-{
-    public string name;
-    public string [] commands;
-
-    public this (string name, string [] commands)
-    {
-        this.name = name;
-        this.commands = commands;
-    }
-}
-
-private class BuildAction
-{
-    public string name;
-    public string configuration;
-    public Action [] actions;
-
-    public this ()
-    {
-
-    }
-
-    public this (string name, Action [] actions)
-    {
-        this.name = name;
-        this.actions = actions;
-    }
-} 

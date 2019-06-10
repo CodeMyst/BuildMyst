@@ -30,4 +30,8 @@ build_release:
     - ${build_pug_minified}
     - ${build_scss_minified}
     - ${file_renamer}
+
+watch:
+    source/:
+        - ${build_pug}
 ...
