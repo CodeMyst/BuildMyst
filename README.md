@@ -8,7 +8,13 @@ Each build executes defined actions in an order one by one. You can specify mult
 
 There's also a watch mode where you can specify which directories to watch, when something changes inside of them the actions get called. You can specify different actions for different directories, so if you have a html and css directories for example, when something changes inside the html folder you don't necessarily also need to build the css folder (but you can if you want!).
 
-How to call BuildMyst:
+## Getting BuildMyst
+
+You can download the Linux binary on the [releases page](https://github.com/CodeMyst/BuildMyst/releases) or you can build it very easily using dmd and dub.
+
+Download dmd on the [D website](https://dlang.org/download.html) and simply run `dub build` in the project directory.
+
+## Running BuildMyst
 
 ```sh
 buildmyst
