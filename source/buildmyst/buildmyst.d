@@ -166,7 +166,12 @@ private void watch ()
         {
             foreach (WatchAction watchAction; watchActions)
             {
-                if (dirName (event.path) == watchAction.path && event.type == FileChangeEventType.modify)
+                // Check if event path is relative to watchAction.path
+                string eventPath = dirName (event.path);
+
+                if (eventPath.length > watchAction.path.length &&
+                    eventPath [0..watchAction.path.length] == watchAction.path &&
+                    event.type == FileChangeEventType.modify)
                 {
                     clearScreen ();
                     cwriteln ("Watching...".color (fg.light_magenta).style (mode.bold));
