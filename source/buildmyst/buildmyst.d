@@ -141,6 +141,7 @@ private void watch ()
 {
     import fswatch : FileWatch, FileChangeEvent, FileChangeEventType;
     import std.path : dirName;
+    import std.utf : UTFException;
 
     clearScreen ();
 
@@ -149,7 +150,18 @@ private void watch ()
     FileWatch watcher = FileWatch (targetDirectory == "" ? "." : targetDirectory, true);
     while (true)
     {
-        FileChangeEvent [] events = watcher.getEvents ();
+        FileChangeEvent [] events;
+
+        try
+        {
+            events = watcher.getEvents ();
+        }
+        // Sometimes fswatch throws a UTFException when a file name contains invalid characters
+        catch (UTFException)
+        {
+            continue;
+        }
+
         foreach (FileChangeEvent event; events)
         {
             foreach (WatchAction watchAction; watchActions)
